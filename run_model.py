@@ -11,8 +11,9 @@ Resources:
 TODO:
     - (kevin.s): handle the case when the test set has missing values in non-train
       cols
-    - (kevin.s): gridsearch for hyperparameter tuning
-    - (kevin.s): record results with probability of a results being a lemon
+    - (kevin.s): determine parameter range for gridsearch
+    - (kevin.s): performa a randomsearchcv
+    - (kevin.s): determine why auc returns nan
     - (kevin.s): implement dimensionality reduction - use PCA
     - (kevin.s): count number of outliers in each column
     - (kevin.s): save model and move model analysis to a separate script
@@ -23,6 +24,7 @@ TODO:
 import os.path
 import pandas as pd
 import numpy as np
+import pickle
 import seaborn as sns
 import sys
 
@@ -33,6 +35,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
 from sklearn.metrics import auc, roc_curve
 from sklearn import decomposition
+
+from sklearn.model_selection import GridSearchCV
 
 # Load the data
 dir_data = '/Users/kevinschenthal/Desktop/kaggle/auto'
@@ -153,7 +157,10 @@ test = test.drop('PurchDate', 1)
 # =============================================================================
 
 # Submodel encoding because it has too many values for one-hot encoding
-label_encode_cols = ['Model', 'SubModel', 'Trim']
+label_encode_cols = (['Model', 'SubModel', 'Trim']
+                    + ['Auction', 'Make', 'Color', 'Transmission', 'WheelTypeID',
+                'WheelType', 'Nationality', 'Size', 'TopThreeAmericanName',
+                'PRIMEUNIT', 'AUCGUART', 'VNST'])
 for col in label_encode_cols:
     # Train
     le = LabelEncoder()
@@ -183,16 +190,24 @@ test[numeric_cols] = min_max_scaler.fit_transform(test[numeric_cols])
 # =============================================================================
 
 # One hot encode columns
-one_hot_cols = ['Auction', 'Make', 'Color', 'Transmission', 'WheelTypeID',
-                'WheelType', 'Nationality', 'Size', 'TopThreeAmericanName',
-                'PRIMEUNIT', 'AUCGUART', 'VNST']
-one_hot_train = pd.get_dummies(train[one_hot_cols])
-train = (train.drop(one_hot_cols, 1)
-              .merge(one_hot_train, left_index=True, right_index=True))
-one_hot_test = pd.get_dummies(test[one_hot_cols])
-test = (test.drop(one_hot_cols, 1)
-            .merge(one_hot_test, left_index=True, right_index=True))
+#one_hot_cols = ['Auction', 'Make', 'Color', 'Transmission', 'WheelTypeID',
+#                'WheelType', 'Nationality', 'Size', 'TopThreeAmericanName',
+#                'PRIMEUNIT', 'AUCGUART', 'VNST']
+#one_hot_train = pd.get_dummies(train[one_hot_cols])
+#train = (train.drop(one_hot_cols, 1)
+#              .merge(one_hot_train, left_index=True, right_index=True))
+#one_hot_test = pd.get_dummies(test[one_hot_cols])
+#test = (test.drop(one_hot_cols, 1)
+#            .merge(one_hot_test, left_index=True, right_index=True))
 
+# =============================================================================
+# REDUCE DIMENSIONS
+# =============================================================================
+
+#from sklearn.decomposition import PCA
+#pca = PCA(n_components=30)
+#train_pca = pca.fit_transform(train)
+#test = pca.fit_transform(test)
 
 # =============================================================================
 # SPECIFY AND SPLIT DATA
@@ -224,8 +239,8 @@ df_class_1 = t_train[t_train[target] == 1]
 df_class_1_over = df_class_1.sample(count_class_0, replace=True)
 df_test_over = pd.concat([df_class_0, df_class_1_over], axis=0)
 
-print('Random over-sampling:')
-print(df_test_over[target].value_counts())
+#print('Random over-sampling:')
+#print(df_test_over[target].value_counts())
 
 
 # =============================================================================
@@ -247,7 +262,19 @@ my_model = RandomForestClassifier(min_samples_split=4,
                                   max_depth=10,
                                   class_weight='balanced',
                                   random_state=0).fit(train_X, train_y)
-#my_model = LogisticRegression(class_weight='balanced').fit(train_X, train_y)
+
+param_grid = {'n_estimators': [10, 20, 30],
+              'min_samples_split': [2, 4, 6],
+              'min_samples_leaf' : [2, 4, 5],
+              'max_depth': [9, 10, 11]
+}
+print("Running Gridsearch")
+CV_rfc = GridSearchCV(estimator=my_model,
+                      param_grid=param_grid,
+                      cv=5,
+                      scoring='roc_auc')
+CV_rfc.fit(train_X, train_y)
+print(CV_rfc.best_params_)
 
 # =============================================================================
 # COMPARE TEST AND VALIDATION PERFORMANCE
@@ -285,15 +312,23 @@ for name, importance in zip(feature_names, my_model.feature_importances_):
 
 
 # =============================================================================
-# SUBMIT RESULTS IN KAGGLE FORMAT
+# SAVE RESULTS & SUBMIT RESULTS IN KAGGLE FORMAT
 # =============================================================================
 
-test_X = test[feature_names]
-#test_y_pred = my_model.predict(test_X)
-# Get probability
-test_y_pred_prob = my_model.predict_proba(test_X)[:, 1]
+save_model = True
+if save_model:
+    model_path = os.path.join(dir_data, 'rf_clf.sav')
+    pickle.dump(my_model, open(model_path, 'wb'))
 
-submission = pd.DataFrame({'RefId': test['RefId'],
-                           'IsBadBuy': test_y_pred_prob})
-submission.to_csv(os.path.join(dir_data,'submission.csv'), index=False,
-                  columns=['RefId', 'IsBadBuy'])
+get_submission = False
+if get_submission:
+    test_X = test[feature_names]
+    #test_y_pred = my_model.predict(test_X)
+    # Get probability
+    test_y_pred_prob = my_model.predict_proba(test_X)[:, 1]
+    
+    submission = pd.DataFrame({'RefId': test['RefId'],
+                               'IsBadBuy': test_y_pred_prob})
+    submission.to_csv(os.path.join(dir_data,'submission.csv'), index=False,
+                      columns=['RefId', 'IsBadBuy'])
+
