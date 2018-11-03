@@ -13,9 +13,9 @@ TODO:
       cols
     - (kevin.s): gridsearch for hyperparameter tuning
     - (kevin.s): record results with probability of a results being a lemon
+    - (kevin.s): implement dimensionality reduction - use PCA
     - (kevin.s): count number of outliers in each column
-    - (kevin.s): one-hot encode columns
-    - (kevin.s): save results as probability
+    - (kevin.s): save model and move model analysis to a separate script
     - (kevin.s): extract additional features from SubModel like liters
     - (kevin.s): make labelencoding and one-hot-encoding a method
 """
@@ -24,12 +24,15 @@ import os.path
 import pandas as pd
 import numpy as np
 import seaborn as sns
+import sys
+
+# Machine learning methods
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
 from sklearn.metrics import auc, roc_curve
-import sys
+from sklearn import decomposition
 
 # Load the data
 dir_data = '/Users/kevinschenthal/Desktop/kaggle/auto'
@@ -109,11 +112,7 @@ for cat_col in missing_cat_impute.keys():
     if missing_cat_impute[cat_col] == 'random':
         fill_null_with_random(train, cat_col)
         fill_null_with_random(test, cat_col)
-        
-#        random_fill = lambda x: np.random.choice(train[train[cat_col] != np.nan][cat_col])
-#        train[cat_col] = train[cat_col].fillna(random_fill)
-#        random_fill = lambda x: np.random.choice(test[test[cat_col] != np.nan][cat_col])
-#        test[cat_col] = test[cat_col].fillna(random_fill)
+    # Impute with chosen value
     else:
         train[cat_col] = train[cat_col].fillna(missing_cat_impute[cat_col])
         test[cat_col] = test[cat_col].fillna(missing_cat_impute[cat_col])
@@ -150,7 +149,7 @@ train = train.drop('PurchDate', 1)
 test = test.drop('PurchDate', 1)
 
 # =============================================================================
-# ENCODE CATEGORICAL FEATURES
+# LABEL ENCODE CATEGORICAL FEATURES
 # =============================================================================
 
 # Submodel encoding because it has too many values for one-hot encoding
@@ -165,6 +164,24 @@ for col in label_encode_cols:
     le.fit(test[col].fillna('a'))
     test[col] = le.transform(test[col].fillna('a'))
 
+# =============================================================================
+# STANDARDIZE NUMERIC VALUE RANGE
+# =============================================================================
+
+from sklearn import preprocessing
+
+min_max_scaler = preprocessing.MinMaxScaler()
+
+numeric_cols = list(set(diagnostic_df['column']) - {'RefId', 'IsBadBuy'})
+numeric_cols = numeric_cols + label_encode_cols
+train[numeric_cols] = min_max_scaler.fit_transform(train[numeric_cols])
+test[numeric_cols] = min_max_scaler.fit_transform(test[numeric_cols])
+
+
+# =============================================================================
+# ONE-HOT ENCODE CATEGORICAL FEATURES
+# =============================================================================
+
 # One hot encode columns
 one_hot_cols = ['Auction', 'Make', 'Color', 'Transmission', 'WheelTypeID',
                 'WheelType', 'Nationality', 'Size', 'TopThreeAmericanName',
@@ -176,26 +193,6 @@ one_hot_test = pd.get_dummies(test[one_hot_cols])
 test = (test.drop(one_hot_cols, 1)
             .merge(one_hot_test, left_index=True, right_index=True))
 
-# =============================================================================
-# STANDARDIZE NUMERIC VALUE RANGE
-# =============================================================================
-
-
-    
-# =============================================================================
-# GET CORRELATION PLOT & 
-# =============================================================================
-
-# Build a correlation matrix heatmap
-#corr_df = train.corr()
-#h = sns.heatmap(data=corr_df)
-#fig = h.get_figure()
-#fig.savefig(os.path.join(dir_data, 'correlation_heatmap.png'))
-
-# Get paneplot
-#g = sns.pairplot(data=train)
-#fig2 = g.get_figure()
-#fig2.savefig(os.path.join(dir_data, 'auto_pairplot.png'))
 
 # =============================================================================
 # SPECIFY AND SPLIT DATA
