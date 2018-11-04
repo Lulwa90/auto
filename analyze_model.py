@@ -13,6 +13,8 @@ TODO:
 
 import os.path
 import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 # =============================================================================
 # LOAD DATA & MODEL

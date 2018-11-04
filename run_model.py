@@ -12,8 +12,8 @@ TODO:
     - (kevin.s): handle the case when the test set has missing values in non-train
       cols
     - (kevin.s): determine parameter range for gridsearch
-    - (kevin.s): performa a randomsearchcv
-    - (kevin.s): determine why auc returns nan
+    - (kevin.s): perform a randomizedsearchcv
+    - (kevin.s): save processed data
     - (kevin.s): implement dimensionality reduction - use PCA
     - (kevin.s): count number of outliers in each column
     - (kevin.s): save model and move model analysis to a separate script
@@ -25,8 +25,6 @@ import os.path
 import pandas as pd
 import numpy as np
 import pickle
-import seaborn as sns
-import sys
 
 # Machine learning methods
 from sklearn.ensemble import RandomForestClassifier
@@ -35,8 +33,10 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
 from sklearn.metrics import auc, roc_curve
 from sklearn import decomposition
-
-from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
+from sklearn import preprocessing
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.preprocessing import LabelEncoder
 
 # Load the data
 dir_data = '/Users/kevinschenthal/Desktop/kaggle/auto'
@@ -82,14 +82,11 @@ col_type_df = (train.dtypes.to_frame()
                            .rename(columns={'index': 'column',
                                             0: 'dtype'}))
 diagnostic_df = diagnostic_df.merge(col_type_df, on='column')
-  
+
 # =============================================================================
 # IMPUTE MISSING VALUES
 # =============================================================================
   
-
-from sklearn.preprocessing import OneHotEncoder
-from sklearn.preprocessing import LabelEncoder
 
 missing_cat_impute = {'TopThreeAmericanName': 'OTHER',  # given category
                       'Color': 'NOT AVAIL',  # given category
@@ -175,8 +172,6 @@ for col in label_encode_cols:
 # STANDARDIZE NUMERIC VALUE RANGE
 # =============================================================================
 
-from sklearn import preprocessing
-
 min_max_scaler = preprocessing.MinMaxScaler()
 
 numeric_cols = list(set(diagnostic_df['column']) - {'RefId', 'IsBadBuy'})
@@ -189,25 +184,19 @@ test[numeric_cols] = min_max_scaler.fit_transform(test[numeric_cols])
 # ONE-HOT ENCODE CATEGORICAL FEATURES
 # =============================================================================
 
-# One hot encode columns
-#one_hot_cols = ['Auction', 'Make', 'Color', 'Transmission', 'WheelTypeID',
-#                'WheelType', 'Nationality', 'Size', 'TopThreeAmericanName',
-#                'PRIMEUNIT', 'AUCGUART', 'VNST']
-#one_hot_train = pd.get_dummies(train[one_hot_cols])
-#train = (train.drop(one_hot_cols, 1)
-#              .merge(one_hot_train, left_index=True, right_index=True))
-#one_hot_test = pd.get_dummies(test[one_hot_cols])
-#test = (test.drop(one_hot_cols, 1)
-#            .merge(one_hot_test, left_index=True, right_index=True))
+one_hot_encode = False
+if one_hot_encode:
+    # One hot encode columns
+    one_hot_cols = ['Auction', 'Make', 'Color', 'Transmission', 'WheelTypeID',
+                    'WheelType', 'Nationality', 'Size', 'TopThreeAmericanName',
+                    'PRIMEUNIT', 'AUCGUART', 'VNST']
+    one_hot_train = pd.get_dummies(train[one_hot_cols])
+    train = (train.drop(one_hot_cols, 1)
+                  .merge(one_hot_train, left_index=True, right_index=True))
+    one_hot_test = pd.get_dummies(test[one_hot_cols])
+    test = (test.drop(one_hot_cols, 1)
+                .merge(one_hot_test, left_index=True, right_index=True))
 
-# =============================================================================
-# REDUCE DIMENSIONS
-# =============================================================================
-
-#from sklearn.decomposition import PCA
-#pca = PCA(n_components=30)
-#train_pca = pca.fit_transform(train)
-#test = pca.fit_transform(test)
 
 # =============================================================================
 # SPECIFY AND SPLIT DATA
@@ -226,55 +215,50 @@ train_y = t_train[target]
 val_X = t_val[feature_names]
 val_y = t_val[target]   
 
-# =============================================================================
-# OVERSAMPLE ISBADBUY CLASS
-# =============================================================================
-
-count_class_0, count_class_1 = t_train[target].value_counts()
-
-# Divide by class
-df_class_0 = t_train[t_train[target] == 0]
-df_class_1 = t_train[t_train[target] == 1]
-
-df_class_1_over = df_class_1.sample(count_class_0, replace=True)
-df_test_over = pd.concat([df_class_0, df_class_1_over], axis=0)
-
-#print('Random over-sampling:')
-#print(df_test_over[target].value_counts())
-
 
 # =============================================================================
 # BUILD A QUICK MODEL
 # =============================================================================
 
-# Fit a fast model and examine feature importance
-#data = df_test_over
-#over_X = df_test_over[feature_names]
-#over_y = df_test_over[target]
-#data = train_X
-#train_X = df_test_over[feature_names]
-#over_y = df_test_over[target]
 
 # Build model
-my_model = RandomForestClassifier(min_samples_split=4,
-                                  min_samples_leaf=2,
-                                  n_estimators=20,
-                                  max_depth=10,
-                                  class_weight='balanced',
-                                  random_state=0).fit(train_X, train_y)
+my_model = RandomForestClassifier(random_state=0)
 
+print("Running Gridsearch")
 param_grid = {'n_estimators': [10, 20, 30],
               'min_samples_split': [2, 4, 6],
               'min_samples_leaf' : [2, 4, 5],
-              'max_depth': [9, 10, 11]
-}
-print("Running Gridsearch")
+              'max_depth': [9, 10, 11],
+              'class_weight': ['balanced']}
 CV_rfc = GridSearchCV(estimator=my_model,
                       param_grid=param_grid,
                       cv=5,
                       scoring='roc_auc')
 CV_rfc.fit(train_X, train_y)
 print(CV_rfc.best_params_)
+
+use_randomized_search = False
+if use_randomized_search:
+    print("Running RandomizedSearch")
+    random_param_grid = {'n_estimators': [10, 25, 30, 35, 40, 45, 50],
+                         'min_samples_split': [2, 3, 4, 5, 6, 7, 8],
+                         'min_samples_leaf' : [1, 2, 3, 4, 5, 6],
+                         'max_depth': [i for i in range(8, 21)],
+                         'class_weight': ['balanced']}
+    RSCV_rfc = RandomizedSearchCV(estimator=my_model,
+                                  n_iter=20,
+                                  param_distributions=random_param_grid,
+                                  cv=5,
+                                  scoring='roc_auc')
+    RSCV_rfc.fit(train_X, train_y)
+    print(RSCV_rfc.best_params_)
+
+# Fit the model
+best_params = CV_rfc.best_params_
+#best_params['n_estimators'] = int(best_params['n_estimators'])  # Error from rounding
+my_model = CV_rfc.best_estimator_.fit(train_X, train_y)
+#my_model = RSCV_rfc.best_estimator_.fit(train_X, train_y)
+
 
 # =============================================================================
 # COMPARE TEST AND VALIDATION PERFORMANCE
@@ -284,7 +268,7 @@ print(CV_rfc.best_params_)
 train_y_pred = my_model.predict(train_X)
 class_report_train = classification_report(train_y, train_y_pred)
 accuracy_train = sum(train_y == train_y_pred) / train_y.shape[0]
-fpr, tpr, thresholds = roc_curve(train_y, train_y_pred, pos_label=2)
+fpr, tpr, thresholds = roc_curve(train_y, train_y_pred)
 auc_value_train = auc(fpr, tpr)
 print(class_report_train)
 print(accuracy_train)
@@ -294,21 +278,16 @@ print(auc_value_train)
 val_y_pred = my_model.predict(val_X)
 class_report_val = classification_report(val_y, val_y_pred)
 accuracy_val = sum(val_y == val_y_pred) / val_y.shape[0]
-fpr, tpr, thresholds = roc_curve(val_y, val_y_pred, pos_label=2)
+fpr, tpr, thresholds = roc_curve(val_y, val_y_pred)
 auc_value = auc(fpr, tpr)
 print(class_report_val)
 print(accuracy_val)
 print(auc_value)
 
-sys.exit()
 
 # Get feature importances
 for name, importance in zip(feature_names, my_model.feature_importances_):
     print(name, "=", importance)
-    
-# =============================================================================
-# COMPARE TEST AND VALIDATION PERFORMANCE
-# =============================================================================
 
 
 # =============================================================================
@@ -317,18 +296,16 @@ for name, importance in zip(feature_names, my_model.feature_importances_):
 
 save_model = True
 if save_model:
-    model_path = os.path.join(dir_data, 'rf_clf.sav')
+    model_path = os.path.join(dir_data, 'rf_clf.pkl')
     pickle.dump(my_model, open(model_path, 'wb'))
 
-get_submission = False
+get_submission = True
 if get_submission:
     test_X = test[feature_names]
-    #test_y_pred = my_model.predict(test_X)
     # Get probability
     test_y_pred_prob = my_model.predict_proba(test_X)[:, 1]
     
     submission = pd.DataFrame({'RefId': test['RefId'],
                                'IsBadBuy': test_y_pred_prob})
-    submission.to_csv(os.path.join(dir_data,'submission.csv'), index=False,
+    submission.to_csv(os.path.join(dir_data, 'submission.csv'), index=False,
                       columns=['RefId', 'IsBadBuy'])
-
